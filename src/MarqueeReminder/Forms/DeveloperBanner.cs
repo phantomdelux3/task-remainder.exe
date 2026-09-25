@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using MarqueeReminder.Infrastructure;
 
 namespace MarqueeReminder.Forms
 {
@@ -11,7 +12,6 @@ namespace MarqueeReminder.Forms
     /// </summary>
     internal sealed class DeveloperBanner : Control
     {
-        public const string DeveloperName = "deadpool1555";
         private const string Caption = "Developer:";
 
         private const int FrameIntervalMs = 33;
@@ -39,7 +39,7 @@ namespace MarqueeReminder.Forms
             Dock = DockStyle.Top;
             Height = 38;
             TabStop = false;
-            AccessibleName = $"{Caption} {DeveloperName}";
+            AccessibleName = $"{Caption} {AppInfo.DeveloperName}";
             AccessibleRole = AccessibleRole.StaticText;
 
             for (var i = 0; i < _sparkles.Length; i++)
@@ -73,7 +73,7 @@ namespace MarqueeReminder.Forms
             {
                 // The name is drawn as a shape so it can be filled with a moving gold gradient.
                 var emSize = graphics.DpiY * _nameFont.SizeInPoints / 72f;
-                namePath.AddString(DeveloperName, _nameFont.FontFamily, (int)_nameFont.Style, emSize, PointF.Empty, StringFormat.GenericTypographic);
+                namePath.AddString(AppInfo.DeveloperName, _nameFont.FontFamily, (int)_nameFont.Style, emSize, PointF.Empty, StringFormat.GenericTypographic);
                 var raw = namePath.GetBounds();
 
                 var gap = captionSize.Height * 0.35f;

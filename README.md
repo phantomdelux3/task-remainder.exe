@@ -1,6 +1,6 @@
 # Marquee Reminder
 
-**Developer: deadpool1555**
+**Developer: deadpool1555** · Support: phantomdeluxe.0555@gmail.com (also in the app under **Settings → Support**)
 
 A small Windows 10/11 (x64) app that shows your reminders as scrolling **marquee bars** on the
 edge of the desktop, at the time you schedule them. A bar stays on screen until it is closed with

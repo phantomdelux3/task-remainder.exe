@@ -41,10 +41,26 @@ namespace MarqueeReminder.Forms
             var passwordGroup = Ui.Group("App password", passwordGrid);
             passwordGroup.Dock = DockStyle.None;
 
+            var supportLink = new LinkLabel
+            {
+                Text = AppInfo.SupportEmail,
+                AutoSize = true,
+                Anchor = AnchorStyles.Left,
+                Margin = new Padding(0, 6, 3, 6),
+            };
+            supportLink.LinkClicked += (sender, e) => AppInfo.EmailSupport(FindForm());
+            var supportGrid = Ui.Grid(1);
+            supportGrid.Controls.Add(Ui.Row(Ui.Label("Questions or problems? Email"), supportLink));
+            supportGrid.Controls.Add(Ui.Hint($"Marquee Reminder is developed by {AppInfo.DeveloperName}."));
+            var supportGroup = Ui.Group("Support", supportGrid);
+            supportGroup.Dock = DockStyle.None;
+            supportGroup.Margin = new Padding(3, 12, 3, 3);
+
             var root = Ui.Grid(1);
             root.Dock = DockStyle.Top;
             root.Controls.Add(_startWithWindows);
             root.Controls.Add(passwordGroup);
+            root.Controls.Add(supportGroup);
             Controls.Add(root);
 
             _startWithWindows.CheckedChanged += (sender, e) => OnStartWithWindowsChanged();
