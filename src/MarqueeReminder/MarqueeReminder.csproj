@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>MarqueeReminder</AssemblyName>
+    <RootNamespace>MarqueeReminder</RootNamespace>
+    <AssemblyTitle>Marquee Reminder</AssemblyTitle>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MarqueeReminder.Core\MarqueeReminder.Core.csproj" />
+  </ItemGroup>
+
+</Project>
