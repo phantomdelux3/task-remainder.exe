@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Globalization;
 using System.Linq;
 using MarqueeReminder.Core.Models;
+using MarqueeReminder.Core.Security;
 
 namespace MarqueeReminder.Core.Storage
 {
@@ -34,7 +35,6 @@ namespace MarqueeReminder.Core.Storage
                 BackColor = ToHex(style.BackColor),
                 ForeColor = ToHex(style.ForeColor),
                 FontFamily = style.FontFamily,
-                FontSize = style.FontSize,
                 Bold = style.Bold,
                 Italic = style.Italic,
                 Position = style.Position.ToString(),
@@ -44,6 +44,9 @@ namespace MarqueeReminder.Core.Storage
                 DisplayMinutes = style.DisplayMinutes,
                 EffectiveFrom = reminder.EffectiveFrom.ToString(DateTimeFormat, Invariant),
                 LastTriggered = reminder.LastTriggered?.ToString(DateTimeFormat, Invariant),
+                UntilDismissed = style.ShowUntilDismissed,
+                ClosePassword = reminder.ClosePassword.ToString(),
+                ActiveSince = reminder.ActiveSince?.ToString(DateTimeFormat, Invariant),
             };
         }
 
@@ -77,17 +80,21 @@ namespace MarqueeReminder.Core.Storage
                     BackColor = ParseColor(dto.BackColor, defaults.BackColor),
                     ForeColor = ParseColor(dto.ForeColor, defaults.ForeColor),
                     FontFamily = dto.FontFamily ?? defaults.FontFamily,
-                    FontSize = dto.FontSize > 0 ? dto.FontSize : defaults.FontSize,
                     Bold = dto.Bold,
                     Italic = dto.Italic,
                     Position = TryParseEnum(dto.Position, out MarqueePosition position) ? position : defaults.Position,
                     Offset = dto.Offset,
                     Thickness = dto.Thickness > 0 ? dto.Thickness : defaults.Thickness,
                     ScrollSpeed = dto.ScrollSpeed > 0 ? dto.ScrollSpeed : defaults.ScrollSpeed,
-                    DisplayMinutes = dto.DisplayMinutes,
+                    ShowUntilDismissed = dto.UntilDismissed ?? dto.DisplayMinutes <= 0,
+                    DisplayMinutes = dto.DisplayMinutes > 0 ? dto.DisplayMinutes : defaults.DisplayMinutes,
                 },
+                ClosePassword = PasswordHash.TryParse(dto.ClosePassword, out var closePassword)
+                    ? closePassword!
+                    : PasswordHash.DefaultForReminders,
                 EffectiveFrom = ParseDateTime(dto.EffectiveFrom) ?? DateTime.Now,
                 LastTriggered = ParseDateTime(dto.LastTriggered),
+                ActiveSince = ParseDateTime(dto.ActiveSince),
             };
         }
 

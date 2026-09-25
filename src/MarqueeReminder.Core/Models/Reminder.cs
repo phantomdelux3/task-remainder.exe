@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using MarqueeReminder.Core.Security;
 
 namespace MarqueeReminder.Core.Models
 {
@@ -9,6 +10,7 @@ namespace MarqueeReminder.Core.Models
         private static readonly Regex Whitespace = new Regex(@"\s+", RegexOptions.Compiled);
 
         private string _text = string.Empty;
+        private PasswordHash _closePassword = PasswordHash.DefaultForReminders;
 
         public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -25,6 +27,13 @@ namespace MarqueeReminder.Core.Models
 
         public MarqueeStyle Style { get; set; } = new MarqueeStyle();
 
+        /// <summary>Password needed to close this reminder's marquee. Defaults to "1234".</summary>
+        public PasswordHash ClosePassword
+        {
+            get => _closePassword;
+            set => _closePassword = value ?? throw new ArgumentNullException(nameof(value));
+        }
+
         /// <summary>
         /// Occurrences scheduled before this moment are ignored. Set whenever the reminder is
         /// created, edited or re-enabled so it never fires for a time that had already passed.
@@ -33,6 +42,12 @@ namespace MarqueeReminder.Core.Models
 
         /// <summary>The scheduled occurrence that most recently fired, so it never fires twice.</summary>
         public DateTime? LastTriggered { get; set; }
+
+        /// <summary>
+        /// When the marquee currently on screen appeared, or null if none is showing. Kept on disk
+        /// so a marquee that was never closed comes back after the app or the PC restarts.
+        /// </summary>
+        public DateTime? ActiveSince { get; set; }
 
         public IReadOnlyList<string> Validate()
         {

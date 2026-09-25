@@ -5,12 +5,27 @@ using System.Drawing;
 using System.Drawing.Text;
 using System.Windows.Forms;
 using MarqueeReminder.Core.Models;
+using MarqueeReminder.Forms;
 
 namespace MarqueeReminder.Marquee
 {
+    /// <summary>Why a marquee window went away.</summary>
+    internal enum MarqueeEndReason
+    {
+        /// <summary>Closed by the app (quitting, replaced, reminder deleted, Windows shutting down).</summary>
+        Closed,
+
+        /// <summary>Its display time ran out.</summary>
+        Expired,
+
+        /// <summary>The user closed it with the password (or clicked a preview).</summary>
+        Dismissed,
+    }
+
     /// <summary>
-    /// A borderless, always-on-top bar that scrolls a reminder's text. It never steals focus
-    /// from the app the user is working in. Double-click (or right-click → Dismiss) closes it.
+    /// A borderless, always-on-top bar that scrolls a reminder's text. It never steals focus from
+    /// the app the user is working in. Clicking it asks for the reminder's password; only the right
+    /// password (or the display time running out) closes it. The text size follows the bar's thickness.
     /// </summary>
     internal sealed class MarqueeWindow : Form
     {
@@ -21,22 +36,25 @@ namespace MarqueeReminder.Marquee
 
         private readonly IContainer _components = new Container();
         private readonly string _message;
-        private readonly Font _messageFont;
+        private readonly Func<string, bool>? _verifyPassword;
         private readonly SolidBrush _textBrush;
         private readonly StringFormat _textFormat;
         private readonly Stopwatch _elapsed = new Stopwatch();
         private readonly Timer _frameTimer;
         private readonly Timer? _lifetimeTimer;
+        private Font? _messageFont;
+        private int _fontThickness;
         private SizeF? _textSize;
+        private PasswordPromptForm? _prompt;
+        private bool _closeAllowed;
 
-        public MarqueeWindow(Guid reminderId, string message, MarqueeStyle style, TimeSpan? displayDuration)
+        /// <param name="verifyPassword">Checks the close password, or null for a preview that closes on a click.</param>
+        public MarqueeWindow(Guid reminderId, string message, MarqueeStyle style, TimeSpan? displayDuration, Func<string, bool>? verifyPassword)
         {
             ReminderId = reminderId;
             Style = style;
             _message = message;
-
-            var fontStyle = (style.Bold ? FontStyle.Bold : FontStyle.Regular) | (style.Italic ? FontStyle.Italic : FontStyle.Regular);
-            _messageFont = new Font(style.FontFamily, style.FontSize, fontStyle, GraphicsUnit.Point);
+            _verifyPassword = verifyPassword;
             _textBrush = new SolidBrush(style.ForeColor);
             _textFormat = (StringFormat)StringFormat.GenericTypographic.Clone();
             _textFormat.FormatFlags |= StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces;
@@ -51,11 +69,7 @@ namespace MarqueeReminder.Marquee
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
 
             var toolTip = new ToolTip(_components);
-            toolTip.SetToolTip(this, "Double-click to dismiss");
-
-            var menu = new ContextMenuStrip(_components);
-            menu.Items.Add("Dismiss", null, (sender, e) => Close());
-            ContextMenuStrip = menu;
+            toolTip.SetToolTip(this, IsPreview ? "Preview. Click to close." : "Click to close (password required)");
 
             _frameTimer = new Timer(_components) { Interval = FrameIntervalMs };
             _frameTimer.Tick += (sender, e) => Invalidate();
@@ -63,13 +77,18 @@ namespace MarqueeReminder.Marquee
             if (displayDuration.HasValue)
             {
                 _lifetimeTimer = new Timer(_components) { Interval = ToTimerInterval(displayDuration.Value) };
-                _lifetimeTimer.Tick += (sender, e) => Close();
+                _lifetimeTimer.Tick += (sender, e) => End(MarqueeEndReason.Expired);
             }
         }
 
         public Guid ReminderId { get; }
 
         public MarqueeStyle Style { get; }
+
+        /// <summary>Previews close with a plain click and are not recorded as the reminder's marquee.</summary>
+        public bool IsPreview => _verifyPassword == null;
+
+        public MarqueeEndReason EndReason { get; private set; } = MarqueeEndReason.Closed;
 
         protected override bool ShowWithoutActivation => true;
 
@@ -83,6 +102,14 @@ namespace MarqueeReminder.Marquee
             }
         }
 
+        /// <summary>Closes the bar, recording why. The only way the app closes a bar.</summary>
+        public void End(MarqueeEndReason reason)
+        {
+            EndReason = reason;
+            _closeAllowed = true;
+            Close();
+        }
+
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
@@ -91,12 +118,33 @@ namespace MarqueeReminder.Marquee
             _lifetimeTimer?.Start();
         }
 
-        protected override void OnMouseDoubleClick(MouseEventArgs e)
+        // Refuse any close the app did not ask for (e.g. Alt+F4). Windows shutting down, or the
+        // app exiting, still closes the bar; it is then shown again on the next start.
+        protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            base.OnMouseDoubleClick(e);
-            if (e.Button == MouseButtons.Left)
+            if (e.CloseReason == CloseReason.UserClosing && !_closeAllowed)
             {
-                Close();
+                e.Cancel = true;
+            }
+
+            base.OnFormClosing(e);
+        }
+
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            base.OnMouseClick(e);
+            if (e.Button != MouseButtons.Left)
+            {
+                return;
+            }
+
+            if (_verifyPassword == null)
+            {
+                End(MarqueeEndReason.Dismissed);
+            }
+            else
+            {
+                ShowPasswordPrompt(_verifyPassword);
             }
         }
 
@@ -104,15 +152,20 @@ namespace MarqueeReminder.Marquee
         {
             base.OnPaint(e);
 
-            var graphics = e.Graphics;
-            graphics.TextRenderingHint = TextRenderingHint.AntiAlias;
-
             // Paint in a virtual horizontal space: x runs along the bar, y across it.
             var length = Style.IsVertical ? ClientSize.Height : ClientSize.Width;
             var thickness = Style.IsVertical ? ClientSize.Width : ClientSize.Height;
+            if (length <= 0 || thickness <= 0)
+            {
+                return;
+            }
+
+            var graphics = e.Graphics;
+            graphics.TextRenderingHint = TextRenderingHint.AntiAlias;
+            var font = FontFor(thickness);
             RotateForEdge(graphics);
 
-            var textSize = _textSize ?? (_textSize = graphics.MeasureString(_message, _messageFont, PointF.Empty, _textFormat)).Value;
+            var textSize = _textSize ?? (_textSize = graphics.MeasureString(_message, font, PointF.Empty, _textFormat)).Value;
 
             // Text enters from the far end, travels the full bar, then starts over. Deriving the
             // position from elapsed time (not frame count) keeps the speed steady even if frames drop.
@@ -121,7 +174,7 @@ namespace MarqueeReminder.Marquee
             var x = length - travelled;
             var y = (thickness - textSize.Height) / 2f;
 
-            graphics.DrawString(_message, _messageFont, _textBrush, x, y, _textFormat);
+            graphics.DrawString(_message, font, _textBrush, x, y, _textFormat);
         }
 
         protected override void Dispose(bool disposing)
@@ -129,12 +182,42 @@ namespace MarqueeReminder.Marquee
             if (disposing)
             {
                 _components.Dispose();
-                _messageFont.Dispose();
+                _messageFont?.Dispose();
                 _textBrush.Dispose();
                 _textFormat.Dispose();
             }
 
             base.Dispose(disposing);
+        }
+
+        private void ShowPasswordPrompt(Func<string, bool> verify)
+        {
+            if (_prompt != null)
+            {
+                _prompt.Activate();
+                return;
+            }
+
+            _prompt = new PasswordPromptForm("Close reminder", $"Enter the password to close this reminder:\n\n{_message}", verify);
+            _prompt.Verified += (sender, e) => End(MarqueeEndReason.Dismissed);
+            _prompt.FormClosed += (sender, e) => _prompt = null;
+
+            // Owned by the bar: it stays above it and closes with it (e.g. when the time runs out).
+            _prompt.Show(this);
+        }
+
+        /// <summary>The text font for the current thickness, recreated only when the bar is resized.</summary>
+        private Font FontFor(int thickness)
+        {
+            if (_messageFont == null || _fontThickness != thickness)
+            {
+                _messageFont?.Dispose();
+                _messageFont = MarqueeFonts.CreateFitted(Style, thickness);
+                _fontThickness = thickness;
+                _textSize = null;
+            }
+
+            return _messageFont;
         }
 
         /// <summary>Left bars read bottom-to-top, right bars top-to-bottom, like book spines.</summary>

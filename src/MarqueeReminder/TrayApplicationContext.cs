@@ -18,7 +18,8 @@ namespace MarqueeReminder
 {
     /// <summary>
     /// The app's lifetime: lives in the notification area, checks the schedule twice a second and
-    /// shows marquees when reminders come due. Closing the main window keeps it running.
+    /// shows marquees when reminders come due. Closing the main window keeps it running; quitting
+    /// (Ctrl+Q or the tray menu) and opening the window ask for the app password when one is set.
     /// </summary>
     internal sealed class TrayApplicationContext : ApplicationContext
     {
@@ -32,6 +33,7 @@ namespace MarqueeReminder
         private readonly Timer _schedulerTimer = new Timer { Interval = SchedulerIntervalMs };
 
         private MainForm? _mainForm;
+        private PasswordPromptForm? _appPasswordPrompt;
         private bool _trayHintShown;
         private bool _exiting;
 
@@ -45,7 +47,8 @@ namespace MarqueeReminder
                 new SystemClock(),
                 new ReminderScheduler(ReminderScheduler.DefaultMissedGracePeriod));
             _service.SaveFailed += (sender, e) => ErrorReporter.Log(e.Exception, "Could not record a fired reminder.");
-            _marquees = new MarqueeManager();
+            _marquees = new MarqueeManager(_service.VerifyClosePassword);
+            _marquees.Finished += OnMarqueeFinished;
 
             _appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? (Icon)SystemIcons.Application.Clone();
             _trayIcon = new NotifyIcon
@@ -59,20 +62,22 @@ namespace MarqueeReminder
             {
                 if (e.Button == MouseButtons.Left)
                 {
-                    ShowMainForm();
+                    RequestOpenMainForm();
                 }
             };
 
             _schedulerTimer.Tick += (sender, e) => ShowDueReminders();
             SystemEvents.TimeChanged += OnSystemTimeChanged;
             SystemEvents.PowerModeChanged += OnPowerModeChanged;
-            instance.ListenForActivation(() => _uiContext.Post(state => ShowMainForm(), null));
+            SystemEvents.SessionEnded += OnSessionEnded;
+            instance.ListenForActivation(() => _uiContext.Post(state => RequestOpenMainForm(), null));
 
             ApplyStartupDefault();
+            RestoreActiveMarquees();
             _schedulerTimer.Start();
             if (!startMinimized)
             {
-                ShowMainForm();
+                RequestOpenMainForm();
             }
 
             ShowDueReminders();
@@ -84,7 +89,9 @@ namespace MarqueeReminder
             {
                 SystemEvents.TimeChanged -= OnSystemTimeChanged;
                 SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+                SystemEvents.SessionEnded -= OnSessionEnded;
                 _schedulerTimer.Dispose();
+                _appPasswordPrompt?.Dispose();
                 _mainForm?.Dispose();
                 _marquees.Dispose();
                 _trayIcon.Visible = false;
@@ -99,14 +106,10 @@ namespace MarqueeReminder
         private ContextMenuStrip BuildTrayMenu()
         {
             var menu = new ContextMenuStrip();
-            var open = menu.Items.Add("Open Marquee Reminder", null, (sender, e) => ShowMainForm());
+            var open = menu.Items.Add("Open Marquee Reminder", null, (sender, e) => RequestOpenMainForm());
             open.Font = new Font(open.Font, FontStyle.Bold);
-            menu.Items.Add("Dismiss all marquees", null, (sender, e) => _marquees.CloseAll());
-            var startWithWindows = new ToolStripMenuItem("Start with Windows", null, (sender, e) => ToggleStartWithWindows());
-            menu.Items.Add(startWithWindows);
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add(new ToolStripMenuItem("Quit", null, (sender, e) => ExitApplication()) { ShortcutKeyDisplayString = "Ctrl+Q" });
-            menu.Opening += (sender, e) => startWithWindows.Checked = StartupRegistration.IsEnabled;
+            menu.Items.Add(new ToolStripMenuItem("Quit", null, (sender, e) => RequestQuit()) { ShortcutKeyDisplayString = "Ctrl+Q" });
             return menu;
         }
 
@@ -122,15 +125,12 @@ namespace MarqueeReminder
             }
         }
 
-        private static void ToggleStartWithWindows()
+        /// <summary>Brings back marquees that were never closed with their password (e.g. across a restart).</summary>
+        private void RestoreActiveMarquees()
         {
-            try
+            foreach (var active in _service.RestoreActive())
             {
-                StartupRegistration.SetEnabled(!StartupRegistration.IsEnabled);
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is SecurityException || ex is IOException)
-            {
-                ErrorReporter.Report(ex, "Could not change the Windows startup setting.");
+                _marquees.Show(active.Reminder, active.Remaining);
             }
         }
 
@@ -138,8 +138,64 @@ namespace MarqueeReminder
         {
             foreach (var reminder in _service.CollectDue())
             {
-                _marquees.Show(reminder);
+                _marquees.Show(reminder, reminder.Style.DisplayDuration);
             }
+        }
+
+        private void OnMarqueeFinished(object sender, MarqueeFinishedEventArgs e)
+        {
+            try
+            {
+                _service.MarkFinished(e.ReminderId);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                ErrorReporter.Log(ex, "Could not record that a marquee was closed.");
+            }
+        }
+
+        private void RequestOpenMainForm()
+        {
+            if (_mainForm != null)
+            {
+                ShowMainForm();
+                return;
+            }
+
+            RunWithAppPassword("Open Marquee Reminder", "Enter the app password to open Marquee Reminder.", ShowMainForm);
+        }
+
+        private void RequestQuit() =>
+            RunWithAppPassword(
+                "Quit Marquee Reminder",
+                "Enter the app password to quit Marquee Reminder. Reminders will not appear until it runs again.",
+                ExitApplication);
+
+        /// <summary>Runs the action straight away if no app password is set; otherwise only after it is entered.</summary>
+        private void RunWithAppPassword(string title, string message, Action action)
+        {
+            if (_exiting)
+            {
+                return;
+            }
+
+            if (!AppPasswordStore.IsSet)
+            {
+                action();
+                return;
+            }
+
+            // One password window at a time; asking again just brings it forward.
+            if (_appPasswordPrompt != null)
+            {
+                _appPasswordPrompt.Activate();
+                return;
+            }
+
+            _appPasswordPrompt = new PasswordPromptForm(title, message, AppPasswordStore.Verify) { Icon = _appIcon };
+            _appPasswordPrompt.Verified += (sender, e) => action();
+            _appPasswordPrompt.FormClosed += (sender, e) => _appPasswordPrompt = null;
+            _appPasswordPrompt.Show();
         }
 
         private void ShowMainForm()
@@ -153,7 +209,7 @@ namespace MarqueeReminder
             {
                 _mainForm = new MainForm(_service, _marquees, _appIcon);
                 _mainForm.FormClosed += OnMainFormClosed;
-                _mainForm.ExitRequested += (sender, e) => ExitApplication();
+                _mainForm.ExitRequested += (sender, e) => RequestQuit();
                 _mainForm.Show();
             }
 
@@ -179,9 +235,14 @@ namespace MarqueeReminder
             }
         }
 
+        /// <summary>
+        /// Quits. Marquees still on screen are closed but stay recorded as active, so they come back
+        /// the next time the app starts: quitting is not a way around their passwords.
+        /// </summary>
         private void ExitApplication()
         {
             _exiting = true;
+            _appPasswordPrompt?.Close();
             _mainForm?.Close();
             _marquees.CloseAll();
             ExitThread();
@@ -198,6 +259,12 @@ namespace MarqueeReminder
                 _mainForm?.RefreshList();
             }, null);
         }
+
+        // Windows is signing out or shutting down, or an installer (Restart Manager) needs the app
+        // closed. That cannot be refused, so exit promptly without a password. Marquees still on
+        // screen stay recorded as active and come back when the app next starts.
+        private void OnSessionEnded(object sender, SessionEndedEventArgs e) =>
+            _uiContext.Send(state => ExitApplication(), null);
 
         private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
         {

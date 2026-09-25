@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using MarqueeReminder.Core.Models;
 using MarqueeReminder.Core.Scheduling;
+using MarqueeReminder.Core.Security;
 using MarqueeReminder.Core.Storage;
 using Xunit;
 using static MarqueeReminder.Core.Tests.Make;
@@ -147,6 +148,119 @@ namespace MarqueeReminder.Core.Tests
 
             Assert.Throws<KeyNotFoundException>(() => _service.RemoveAll(new[] { reminder.Id, Guid.NewGuid() }));
             Assert.Single(_service.GetAll());
+        }
+
+        [Fact]
+        public void FiredReminder_IsActiveUntilFinished()
+        {
+            var reminder = _service.Add(Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default));
+            _clock.Now = At(2026, 3, 10, 9, 0);
+            _service.CollectDue();
+
+            Assert.Equal(At(2026, 3, 10, 9, 0), _store.Saved[0].ActiveSince);
+
+            _service.MarkFinished(reminder.Id);
+
+            Assert.Null(_store.Saved[0].ActiveSince);
+            Assert.Empty(_service.RestoreActive());
+        }
+
+        [Fact]
+        public void RestoreActive_BringsBackUntilDismissedMarquee()
+        {
+            _service.Add(Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default));
+            _clock.Now = At(2026, 3, 10, 9, 0);
+            _service.CollectDue();
+
+            // App restarts two days later: the marquee was never closed with its password.
+            _clock.Now = At(2026, 3, 12, 8, 0);
+            var restarted = new ReminderService(_store, _clock, new ReminderScheduler(TimeSpan.FromMinutes(30)));
+
+            var active = Assert.Single(restarted.RestoreActive());
+            Assert.Null(active.Remaining);
+        }
+
+        [Fact]
+        public void RestoreActive_TimedMarquee_GetsOnlyRemainingTime()
+        {
+            var timed = Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default);
+            timed.Style.ShowUntilDismissed = false;
+            timed.Style.DisplayMinutes = 10;
+            _service.Add(timed);
+            _clock.Now = At(2026, 3, 10, 9, 0);
+            _service.CollectDue();
+
+            _clock.Now = At(2026, 3, 10, 9, 4);
+            Assert.Equal(TimeSpan.FromMinutes(6), Assert.Single(_service.RestoreActive()).Remaining);
+
+            _clock.Now = At(2026, 3, 10, 9, 10);
+            Assert.Empty(_service.RestoreActive());
+            Assert.Null(_store.Saved[0].ActiveSince);
+        }
+
+        [Fact]
+        public void RestoreActive_ClockMovedBack_NeverExceedsFullDuration()
+        {
+            var timed = Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default);
+            timed.Style.ShowUntilDismissed = false;
+            timed.Style.DisplayMinutes = 10;
+            _service.Add(timed);
+            _clock.Now = At(2026, 3, 10, 9, 0);
+            _service.CollectDue();
+
+            _clock.Now = At(2026, 3, 10, 8, 0);
+
+            Assert.Equal(TimeSpan.FromMinutes(10), Assert.Single(_service.RestoreActive()).Remaining);
+        }
+
+        [Fact]
+        public void Update_KeepsMarqueeActive()
+        {
+            var reminder = _service.Add(Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default));
+            _clock.Now = At(2026, 3, 10, 9, 0);
+            _service.CollectDue();
+
+            var edited = _service.GetAll()[0];
+            edited.Text = "Edited while showing";
+            _service.Update(edited);
+
+            Assert.Equal(At(2026, 3, 10, 9, 0), _service.GetAll()[0].ActiveSince);
+            Assert.Equal(reminder.Id, _service.GetAll()[0].Id);
+        }
+
+        [Fact]
+        public void Add_NeverStartsActive()
+        {
+            var reminder = Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default);
+            reminder.ActiveSince = At(2026, 3, 1);
+
+            Assert.Null(_service.Add(reminder).ActiveSince);
+        }
+
+        [Fact]
+        public void VerifyClosePassword_UsesTheReminderPassword()
+        {
+            var withDefault = _service.Add(Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default));
+            var custom = Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default);
+            custom.ClosePassword = PasswordHash.Create("letmeout");
+            custom = _service.Add(custom);
+
+            Assert.True(_service.VerifyClosePassword(withDefault.Id, "1234"));
+            Assert.True(_service.VerifyClosePassword(custom.Id, "letmeout"));
+            Assert.False(_service.VerifyClosePassword(custom.Id, "1234"));
+            Assert.False(_service.VerifyClosePassword(Guid.NewGuid(), "1234"));
+        }
+
+        [Fact]
+        public void VerifyClosePassword_SeesPasswordChangedWhileMarqueeIsShowing()
+        {
+            var reminder = _service.Add(Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), default));
+            var edited = _service.GetAll()[0];
+            edited.ClosePassword = PasswordHash.Create("changed");
+            _service.Update(edited);
+
+            Assert.True(_service.VerifyClosePassword(reminder.Id, "changed"));
+            Assert.False(_service.VerifyClosePassword(reminder.Id, "1234"));
         }
 
         private sealed class FailingStore : IReminderStore

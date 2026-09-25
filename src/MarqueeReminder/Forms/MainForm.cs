@@ -45,7 +45,7 @@ namespace MarqueeReminder.Forms
         private readonly ToolStripButton _editButton = new ToolStripButton("Edit");
         private readonly ToolStripButton _deleteButton = new ToolStripButton("Delete");
         private readonly ToolStripButton _previewButton = new ToolStripButton("Preview");
-        private readonly ToolStripButton _startupButton = new ToolStripButton("Start with Windows") { CheckOnClick = false };
+        private readonly SettingsPanel _settings = new SettingsPanel();
         private readonly ToolStripStatusLabel _summaryLabel = new ToolStripStatusLabel { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
         private readonly ToolStripStatusLabel _clockLabel = new ToolStripStatusLabel();
         private readonly Timer _clockTimer = new Timer { Interval = 1000 };
@@ -75,8 +75,16 @@ namespace MarqueeReminder.Forms
             _list.Columns.Add("Position", 130);
             _list.Controls.Add(_emptyHint);
 
-            Controls.Add(_list);
-            Controls.Add(BuildToolStrip());
+            var remindersPage = new TabPage("Reminders");
+            remindersPage.Controls.Add(_list);
+            remindersPage.Controls.Add(BuildToolStrip());
+            var settingsPage = new TabPage("Settings");
+            settingsPage.Controls.Add(_settings);
+            var tabs = new TabControl { Dock = DockStyle.Fill };
+            tabs.TabPages.Add(remindersPage);
+            tabs.TabPages.Add(settingsPage);
+
+            Controls.Add(tabs);
             Controls.Add(new StatusStrip { Items = { _summaryLabel, _clockLabel }, SizingGrip = false });
             ResumeLayout(false);
             PerformLayout();
@@ -115,7 +123,7 @@ namespace MarqueeReminder.Forms
             }
 
             var active = reminders.Count(r => r.IsEnabled);
-            _summaryLabel.Text = $"{reminders.Count} reminder(s), {active} active  ·  Closing this window keeps reminders running; Ctrl+Q quits";
+            _summaryLabel.Text = $"{reminders.Count} reminder(s), {active} active  ·  Closing this window keeps reminders running. Ctrl+Q quits.";
             _emptyHint.Visible = reminders.Count == 0;
             _lastRefreshMinute = TruncateToMinute(DateTime.Now);
             UpdateCommandState();
@@ -131,11 +139,11 @@ namespace MarqueeReminder.Forms
             _clockTimer.Start();
         }
 
-        // The setting can also be changed from the tray menu while this window is open.
+        // Settings live outside this window (registry), so re-read them whenever it comes to the front.
         protected override void OnActivated(EventArgs e)
         {
             base.OnActivated(e);
-            _startupButton.Checked = StartupRegistration.IsEnabled;
+            _settings.RefreshState();
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -180,16 +188,12 @@ namespace MarqueeReminder.Forms
             _editButton.Click += (sender, e) => EditSelected();
             _deleteButton.Click += (sender, e) => DeleteSelected();
             _previewButton.Click += (sender, e) => PreviewSelected();
-            _startupButton.Click += (sender, e) => ToggleStartWithWindows();
-            _startupButton.Alignment = ToolStripItemAlignment.Right;
-            _startupButton.Checked = StartupRegistration.IsEnabled;
-            _startupButton.ToolTipText = "Start Marquee Reminder automatically when you sign in to Windows";
 
             return new ToolStrip
             {
                 GripStyle = ToolStripGripStyle.Hidden,
                 Padding = new Padding(6, 2, 6, 2),
-                Items = { newButton, _editButton, _deleteButton, new ToolStripSeparator(), _previewButton, _startupButton },
+                Items = { newButton, _editButton, _deleteButton, new ToolStripSeparator(), _previewButton },
             };
         }
 
@@ -304,7 +308,7 @@ namespace MarqueeReminder.Forms
         {
             foreach (var reminder in SelectedReminders)
             {
-                _marquees.Show(reminder, PreviewDuration);
+                _marquees.ShowPreview(reminder, PreviewDuration);
             }
         }
 
@@ -317,12 +321,6 @@ namespace MarqueeReminder.Forms
             }
 
             _list.EndUpdate();
-        }
-
-        private void ToggleStartWithWindows()
-        {
-            RunSafely(() => StartupRegistration.SetEnabled(!StartupRegistration.IsEnabled), "Could not change the Windows startup setting.");
-            _startupButton.Checked = StartupRegistration.IsEnabled;
         }
 
         private void UpdateCommandState()

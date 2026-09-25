@@ -9,7 +9,7 @@ namespace MarqueeReminder.Core.Storage
     [DataContract(Name = "document", Namespace = "")]
     internal sealed class ReminderDocumentDto
     {
-        public const int CurrentVersion = 1;
+        public const int CurrentVersion = 2;
 
         [DataMember(Name = "version", Order = 0)]
         public int Version { get; set; } = CurrentVersion;
@@ -54,9 +54,6 @@ namespace MarqueeReminder.Core.Storage
         [DataMember(Name = "fontFamily", Order = 10)]
         public string? FontFamily { get; set; }
 
-        [DataMember(Name = "fontSize", Order = 11)]
-        public float FontSize { get; set; }
-
         [DataMember(Name = "bold", Order = 12)]
         public bool Bold { get; set; }
 
@@ -83,5 +80,15 @@ namespace MarqueeReminder.Core.Storage
 
         [DataMember(Name = "lastTriggered", Order = 20)]
         public string? LastTriggered { get; set; }
+
+        // Absent in files written before version 1.1; then derived from displayMinutes == 0.
+        [DataMember(Name = "untilDismissed", Order = 21, EmitDefaultValue = false)]
+        public bool? UntilDismissed { get; set; }
+
+        [DataMember(Name = "closePassword", Order = 22)]
+        public string? ClosePassword { get; set; }
+
+        [DataMember(Name = "activeSince", Order = 23)]
+        public string? ActiveSince { get; set; }
     }
 }

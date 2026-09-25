@@ -1,0 +1,75 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!--
+    Per-user install: no administrator rights needed, installs to %LOCALAPPDATA%\Programs.
+    Uninstalling removes the app's settings key (HKCU\Software\MarqueeReminder), which resets a
+    forgotten app password. Reminders live in %APPDATA%\MarqueeReminder and are kept.
+  -->
+  <Package Name="Marquee Reminder"
+           Manufacturer="Marquee Reminder"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="7C1E4B52-9A3D-4F0B-8E26-5D8A1B3C9F41"
+           Scope="perUser">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="..\src\MarqueeReminder\Resources\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Marquee Reminder" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <Component Id="App" Directory="INSTALLFOLDER" Guid="3B8F6C1D-2E4A-4C7B-9F0E-6A5D8C2B1E47">
+        <File Id="AppExe" Source="$(var.MarqueeReminder.TargetDir)MarqueeReminder.exe" />
+        <File Id="AppConfig" Source="$(var.MarqueeReminder.TargetDir)MarqueeReminder.exe.config" />
+        <File Id="CoreDll" Source="$(var.MarqueeReminder.TargetDir)MarqueeReminder.Core.dll" />
+
+        <Shortcut Id="StartMenuShortcut"
+                  Directory="ProgramMenuFolder"
+                  Name="Marquee Reminder"
+                  Target="[#AppExe]"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+
+        <!-- Start with Windows, minimized to the tray. Removed again on uninstall. -->
+        <RegistryValue Root="HKCU"
+                       Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="MarqueeReminder"
+                       Type="string"
+                       Value="&quot;[#AppExe]&quot; --minimized" />
+
+        <!-- Per-user components must use a registry value as their key path. -->
+        <RegistryValue Root="HKCU" Key="Software\MarqueeReminder\Installer" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+
+        <!-- Uninstalling deletes the app's settings, including the app password. -->
+        <RemoveRegistryKey Root="HKCU" Key="Software\MarqueeReminder" Action="removeOnUninstall" />
+
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
+      </Component>
+    </Feature>
+
+    <!-- The app refuses to quit without its password, so the installer closes it when upgrading or uninstalling. -->
+    <util:CloseApplication Id="CloseRunningApp"
+                           Target="MarqueeReminder.exe"
+                           CloseMessage="yes"
+                           TerminateProcess="1"
+                           RebootPrompt="no" />
+
+    <!-- Start the app once installation finishes. -->
+    <CustomAction Id="LaunchApp"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]MarqueeReminder.exe&quot;"
+                  Execute="immediate"
+                  Return="asyncNoWait" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT REMOVE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

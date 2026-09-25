@@ -52,6 +52,24 @@ namespace MarqueeReminder.Core.Tests
             Assert.Equal(first.Top, second.Bottom);
         }
 
+        [Theory]
+        [InlineData(48, 1.25f)]
+        [InlineData(100, 1.33f)]
+        [InlineData(300, 1.2f)]
+        public void FitFontPixels_TextLineFillsSetShareOfBar(int thickness, float lineSpacingRatio)
+        {
+            var lineHeight = MarqueeLayout.FitFontPixels(thickness, lineSpacingRatio) * lineSpacingRatio;
+
+            Assert.Equal(thickness * MarqueeLayout.TextFillRatio, lineHeight, 3);
+        }
+
+        [Fact]
+        public void FitFontPixels_GrowsWithThickness_AndHasFloor()
+        {
+            Assert.True(MarqueeLayout.FitFontPixels(200, 1.3f) > MarqueeLayout.FitFontPixels(100, 1.3f));
+            Assert.Equal(MarqueeLayout.MinFontPixels, MarqueeLayout.FitFontPixels(1, 1.3f));
+        }
+
         [Fact]
         public void RespectsWorkAreaOrigin_OnSecondaryLayouts()
         {

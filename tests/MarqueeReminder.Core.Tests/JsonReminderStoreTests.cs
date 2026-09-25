@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Text;
 using MarqueeReminder.Core.Models;
+using MarqueeReminder.Core.Security;
 using MarqueeReminder.Core.Storage;
 using Xunit;
 using static MarqueeReminder.Core.Tests.Make;
@@ -42,19 +43,21 @@ namespace MarqueeReminder.Core.Tests
                 text: "Team stand-up \"daily\" — ünïcødé");
             original.IsEnabled = false;
             original.LastTriggered = At(2026, 3, 9, 17, 45);
+            original.ActiveSince = At(2026, 3, 9, 17, 45, 1);
+            original.ClosePassword = PasswordHash.Create("s3cret");
             original.Style = new MarqueeStyle
             {
                 BackColor = Color.FromArgb(0x12, 0x34, 0x56),
                 ForeColor = Color.FromArgb(0xAB, 0xCD, 0xEF),
                 FontFamily = "Consolas",
-                FontSize = 18.5f,
                 Bold = false,
                 Italic = true,
                 Position = MarqueePosition.Right,
                 Offset = -25,
                 Thickness = 72,
                 ScrollSpeed = 300,
-                DisplayMinutes = 0,
+                ShowUntilDismissed = false,
+                DisplayMinutes = 7,
             };
 
             var store = new JsonReminderStore(_file);
@@ -66,6 +69,9 @@ namespace MarqueeReminder.Core.Tests
             Assert.False(loaded.IsEnabled);
             Assert.Equal(original.EffectiveFrom, loaded.EffectiveFrom);
             Assert.Equal(original.LastTriggered, loaded.LastTriggered);
+            Assert.Equal(original.ActiveSince, loaded.ActiveSince);
+            Assert.True(loaded.ClosePassword.Verify("s3cret"));
+            Assert.False(loaded.ClosePassword.Verify(PasswordHash.DefaultReminderPassword));
 
             Assert.Equal(RecurrenceKind.Weekly, loaded.Schedule.Recurrence);
             Assert.Equal(At(2026, 3, 1), loaded.Schedule.StartDate);
@@ -76,14 +82,45 @@ namespace MarqueeReminder.Core.Tests
             Assert.Equal(original.Style.BackColor.ToArgb(), loaded.Style.BackColor.ToArgb());
             Assert.Equal(original.Style.ForeColor.ToArgb(), loaded.Style.ForeColor.ToArgb());
             Assert.Equal("Consolas", loaded.Style.FontFamily);
-            Assert.Equal(18.5f, loaded.Style.FontSize);
             Assert.False(loaded.Style.Bold);
             Assert.True(loaded.Style.Italic);
             Assert.Equal(MarqueePosition.Right, loaded.Style.Position);
             Assert.Equal(-25, loaded.Style.Offset);
             Assert.Equal(72, loaded.Style.Thickness);
             Assert.Equal(300, loaded.Style.ScrollSpeed);
-            Assert.Equal(0, loaded.Style.DisplayMinutes);
+            Assert.False(loaded.Style.ShowUntilDismissed);
+            Assert.Equal(7, loaded.Style.DisplayMinutes);
+        }
+
+        [Fact]
+        public void Save_NeverWritesPasswordsInPlainText()
+        {
+            var reminder = Reminder(Schedule(RecurrenceKind.Daily, At(2026, 1, 1), 9, 0), At(2026, 1, 1));
+            reminder.ClosePassword = PasswordHash.Create("PlainTextCanary");
+
+            new JsonReminderStore(_file).Save(new[] { reminder });
+
+            Assert.DoesNotContain("PlainTextCanary", File.ReadAllText(_file));
+        }
+
+        [Fact]
+        public void Load_Version1File_MigratesToDefaults()
+        {
+            // Written by version 1.0: no password, no untilDismissed, "0 minutes" meant "until dismissed".
+            Directory.CreateDirectory(_directory);
+            File.WriteAllText(_file, @"{ ""version"": 1, ""reminders"": [
+    { ""id"": ""3f2504e0-4f89-11d3-9a0c-0305e82c3301"", ""text"": ""old"", ""enabled"": true, ""recurrence"": ""Daily"",
+      ""startDate"": ""2026-01-01"", ""time"": ""07:05"", ""fontSize"": 20, ""displayMinutes"": 0 },
+    { ""id"": ""3f2504e0-4f89-11d3-9a0c-0305e82c3302"", ""text"": ""timed"", ""enabled"": true, ""recurrence"": ""Daily"",
+      ""startDate"": ""2026-01-01"", ""time"": ""07:05"", ""displayMinutes"": 3 } ] }");
+
+            var loaded = new JsonReminderStore(_file).Load();
+
+            Assert.True(loaded[0].Style.ShowUntilDismissed);
+            Assert.True(loaded[0].ClosePassword.Verify(PasswordHash.DefaultReminderPassword));
+            Assert.Null(loaded[0].ActiveSince);
+            Assert.False(loaded[1].Style.ShowUntilDismissed);
+            Assert.Equal(3, loaded[1].Style.DisplayMinutes);
         }
 
         [Fact]

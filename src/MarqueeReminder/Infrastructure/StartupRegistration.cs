@@ -11,7 +11,6 @@ namespace MarqueeReminder.Infrastructure
 
         private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string ValueName = "MarqueeReminder";
-        private const string SettingsKeyPath = @"Software\MarqueeReminder";
         private const string DefaultAppliedValueName = "StartupDefaultApplied";
 
         private static string Command => $"\"{Application.ExecutablePath}\" {MinimizedArgument}";
@@ -53,7 +52,7 @@ namespace MarqueeReminder.Infrastructure
         /// </summary>
         public static void ApplyDefault()
         {
-            using (var settings = Registry.CurrentUser.CreateSubKey(SettingsKeyPath))
+            using (var settings = Registry.CurrentUser.CreateSubKey(AppRegistry.SettingsKeyPath))
             {
                 if (settings.GetValue(DefaultAppliedValueName) == null)
                 {

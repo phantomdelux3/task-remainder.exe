@@ -10,6 +10,28 @@ namespace MarqueeReminder.Core.Layout
         /// <summary>However far a bar is pushed outward or inward, this many pixels stay on screen.</summary>
         public const int MinVisiblePixels = 8;
 
+        /// <summary>Share of the bar's thickness taken up by one line of text.</summary>
+        public const float TextFillRatio = 0.7f;
+
+        /// <summary>Smallest font size used, in pixels, however thin the bar is.</summary>
+        public const float MinFontPixels = 6f;
+
+        /// <summary>
+        /// The font size (in pixels) at which one line of text fills <see cref="TextFillRatio"/> of the bar,
+        /// so the text grows and shrinks with the bar's thickness.
+        /// </summary>
+        /// <param name="thickness">Bar thickness in pixels.</param>
+        /// <param name="lineSpacingRatio">The font's line spacing divided by its em height (about 1.2 to 1.4).</param>
+        public static float FitFontPixels(int thickness, float lineSpacingRatio)
+        {
+            if (lineSpacingRatio <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(lineSpacingRatio), lineSpacingRatio, "Line spacing ratio must be positive.");
+            }
+
+            return Math.Max(MinFontPixels, thickness * TextFillRatio / lineSpacingRatio);
+        }
+
         /// <param name="workArea">Usable screen area (excludes the taskbar).</param>
         /// <param name="position">Edge the bar is attached to.</param>
         /// <param name="thickness">Bar thickness in pixels.</param>

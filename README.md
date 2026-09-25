@@ -1,28 +1,44 @@
 # Marquee Reminder
 
 A small Windows 10/11 (x64) app that shows your reminders as scrolling **marquee bars** on the
-edge of the desktop, at the time you schedule them.
+edge of the desktop, at the time you schedule them. A bar stays on screen until it is closed with
+that reminder's password.
+
+## Install
+
+Run `MarqueeReminder-Setup.msi`. No administrator rights are needed. It installs for your user
+account into `%LOCALAPPDATA%\Programs\Marquee Reminder`, adds a Start menu shortcut, sets the app
+to start with Windows, and starts it. Uninstall it from **Settings → Apps**.
 
 ## Features
 
-- **Any number of reminders.** Each has its own text, schedule and look.
+- **Any number of reminders.** Each has its own text, schedule, password and look.
 - **Schedules:** once on a date, every day, weekly on the days you pick (e.g. Mon + Fri), or
   monthly on a day of the month. For day 29 to 31, shorter months use their last day.
-- **Appearance:** background colour, text colour, font, bar thickness, scroll speed, and how long
-  the bar stays up (or until you dismiss it).
+- **Closing a marquee needs its password.** Click the bar and enter the reminder's close password.
+  New reminders use **1234** unless you choose another. A wrong password leaves the bar up and
+  pauses input for a second. Each reminder either:
+  - stays **until closed with the password** (no time limit, the default), or
+  - **shows for N minutes**, then closes by itself (the password still closes it sooner).
+- **Marquees survive restarts.** A bar that was never closed comes back when the app starts again,
+  including after quitting the app or restarting the PC. Timed bars get only their remaining time.
+- **Appearance:** background and text colours, font, bold/italic, bar thickness (height, or width
+  for side bars) and scroll speed. **Text size adjusts to the bar's thickness automatically.**
 - **Position:** top, bottom, left or right edge of the primary screen (above the taskbar), plus an
-  **offset** in pixels. A positive offset
-  moves the bar inward, towards the centre of the screen. A negative offset pushes it outward past
-  the edge. Several bars on the same edge stack instead of overlapping.
-- **Preview** any reminder on screen before saving it.
-- **Starts with Windows** automatically. This is switched on the first time you run the app and
-  starts it silently in the tray when you sign in. Turn it off or on with "Start with Windows" in
-  the main window or the tray menu. If you move the app, the startup entry follows it.
-- **Keeps running when you close the window.** Closing (X) only hides it to the notification area
-  (system tray) so reminders still fire. Press **Ctrl+Q** in the window, or choose **Quit** in the
-  tray menu, to exit completely. Only one copy runs at a time.
-- Marquees never take focus from whatever you are typing in. Double-click a bar (or right-click →
-  Dismiss) to close it.
+  **offset** in pixels. A positive offset moves the bar inward, towards the centre of the screen.
+  A negative offset pushes it outward past the edge. Bars on the same edge stack instead of
+  overlapping.
+- **Preview** any reminder on screen for 10 seconds. A preview closes with a plain click.
+- **Starts with Windows**, silently in the notification area (system tray). Turn it off or on in
+  **Settings**.
+- **Keeps running when you close the window.** Closing (X) only hides it to the tray so reminders
+  still fire. Press **Ctrl+Q** in the window, or choose **Quit** in the tray menu, to exit.
+- **Optional app password** (set in **Settings**). When set, it is needed to open the main window
+  and to quit the app. There is no "forgot password" option: **uninstall and reinstall** the app to
+  reset it. Your reminders are kept.
+- Marquees never take focus from whatever you are typing in. Only one copy of the app runs at a time.
+
+Passwords are never stored in plain text: only salted PBKDF2-SHA256 hashes are saved.
 
 ## Timing guarantees
 
@@ -45,26 +61,34 @@ daylight-saving changes. The schedule is checked twice a second and is covered b
 
 ## Build
 
-You need a .NET SDK (6 or later) to build.
+You need a .NET SDK (6 or later). The installer build downloads the WiX toolset from NuGet.
 
 ```powershell
 dotnet build MarqueeReminder.sln -c Release
 dotnet test  MarqueeReminder.sln -c Release
+dotnet build installer\MarqueeReminder.Installer.wixproj -c Release
 ```
 
-The app is written to `src\MarqueeReminder\bin\Release\net48\`. Copy that folder anywhere and run
-`MarqueeReminder.exe`.
+The app is written to `src\MarqueeReminder\bin\Release\net48\` and the installer to
+`installer\bin\Release\MarqueeReminder-Setup.msi`.
 
 ## Where data lives
 
-Reminders are saved to `%APPDATA%\MarqueeReminder\reminders.json`. The file is readable JSON and is
-written atomically. If it is ever corrupted, the app keeps a `.corrupt-<timestamp>` copy and starts
-empty instead of overwriting it. Unexpected errors are logged to `%APPDATA%\MarqueeReminder\error.log`.
+| What | Where | Removed on uninstall? |
+|---|---|---|
+| Reminders (text, schedules, hashed close passwords, bars still showing) | `%APPDATA%\MarqueeReminder\reminders.json` | No |
+| App password (hashed) and app settings | `HKEY_CURRENT_USER\Software\MarqueeReminder` | Yes |
+| Start with Windows | `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` | Yes |
+| Error log | `%APPDATA%\MarqueeReminder\error.log` | No |
+
+The reminders file is readable JSON and is written atomically. If it is ever corrupted, the app
+keeps a `.corrupt-<timestamp>` copy and starts empty instead of overwriting it.
 
 ## Project layout
 
 ```
-src/MarqueeReminder.Core     Models, scheduling engine, JSON storage, layout math (no UI, fully tested)
-src/MarqueeReminder          WinForms app: tray, main window, editor, marquee windows
-tests/MarqueeReminder.Core.Tests   xUnit tests for scheduling, storage and layout
+src/MarqueeReminder.Core           Models, scheduling, password hashing, JSON storage, layout math (no UI, fully tested)
+src/MarqueeReminder                WinForms app: tray, main window, settings, editor, marquee windows
+tests/MarqueeReminder.Core.Tests   xUnit tests
+installer                          WiX MSI installer (per-user)
 ```

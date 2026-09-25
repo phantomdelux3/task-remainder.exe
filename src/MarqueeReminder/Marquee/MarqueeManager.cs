@@ -10,6 +10,16 @@ using Microsoft.Win32;
 
 namespace MarqueeReminder.Marquee
 {
+    public sealed class MarqueeFinishedEventArgs : EventArgs
+    {
+        public MarqueeFinishedEventArgs(Guid reminderId)
+        {
+            ReminderId = reminderId;
+        }
+
+        public Guid ReminderId { get; }
+    }
+
     /// <summary>
     /// Shows marquee windows on the primary screen and keeps them laid out. Bars that share an
     /// edge are stacked inward so they never cover each other.
@@ -18,38 +28,41 @@ namespace MarqueeReminder.Marquee
     {
         private readonly List<MarqueeWindow> _windows = new List<MarqueeWindow>();
         private readonly SynchronizationContext _uiContext;
+        private readonly Func<Guid, string, bool> _verifyClosePassword;
 
-        public MarqueeManager()
+        /// <param name="verifyClosePassword">Checks a password against a reminder's current close password.</param>
+        public MarqueeManager(Func<Guid, string, bool> verifyClosePassword)
         {
+            _verifyClosePassword = verifyClosePassword ?? throw new ArgumentNullException(nameof(verifyClosePassword));
             _uiContext = SynchronizationContext.Current
                 ?? throw new InvalidOperationException("MarqueeManager must be created on the UI thread.");
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         }
 
         /// <summary>
-        /// Shows the reminder, replacing any marquee already showing for it.
+        /// Raised when a reminder's marquee is gone for good: closed with its password or its time
+        /// ran out. Not raised for previews, or when the app closes a bar (e.g. on exit).
         /// </summary>
-        /// <param name="durationOverride">Display time to use instead of the reminder's own setting (e.g. for previews).</param>
-        public void Show(Reminder reminder, TimeSpan? durationOverride = null)
+        public event EventHandler<MarqueeFinishedEventArgs>? Finished;
+
+        /// <summary>Shows the reminder's marquee, replacing one already showing for it.</summary>
+        /// <param name="duration">How long it stays, or null until closed with the password.</param>
+        public void Show(Reminder reminder, TimeSpan? duration)
         {
-            _windows.FirstOrDefault(w => w.ReminderId == reminder.Id)?.Close();
-
-            var duration = durationOverride
-                ?? (reminder.Style.DisplayMinutes > 0 ? TimeSpan.FromMinutes(reminder.Style.DisplayMinutes) : (TimeSpan?)null);
-            var window = new MarqueeWindow(reminder.Id, reminder.Text, reminder.Style.Clone(), duration);
-            window.FormClosed += OnWindowClosed;
-            _windows.Add(window);
-
-            ArrangeWindows();
-            window.Show();
+            var id = reminder.Id;
+            Open(reminder, duration, password => _verifyClosePassword(id, password));
         }
 
+        /// <summary>Shows a short preview that closes on a click. Never affects the reminder's real marquee.</summary>
+        public void ShowPreview(Reminder reminder, TimeSpan duration) => Open(reminder, duration, verifyPassword: null);
+
+        /// <summary>Closes the marquees (and previews) of the given reminders, e.g. when they are deleted.</summary>
         public void Close(IEnumerable<Guid> reminderIds)
         {
             var ids = new HashSet<Guid>(reminderIds);
             foreach (var window in _windows.Where(w => ids.Contains(w.ReminderId)).ToArray())
             {
-                window.Close();
+                window.End(MarqueeEndReason.Closed);
             }
         }
 
@@ -57,7 +70,7 @@ namespace MarqueeReminder.Marquee
         {
             foreach (var window in _windows.ToArray())
             {
-                window.Close();
+                window.End(MarqueeEndReason.Closed);
             }
         }
 
@@ -67,12 +80,30 @@ namespace MarqueeReminder.Marquee
             CloseAll();
         }
 
+        private void Open(Reminder reminder, TimeSpan? duration, Func<string, bool>? verifyPassword)
+        {
+            var isPreview = verifyPassword == null;
+            _windows.FirstOrDefault(w => w.ReminderId == reminder.Id && w.IsPreview == isPreview)?.End(MarqueeEndReason.Closed);
+
+            var window = new MarqueeWindow(reminder.Id, reminder.Text, reminder.Style.Clone(), duration, verifyPassword);
+            window.FormClosed += OnWindowClosed;
+            _windows.Add(window);
+
+            ArrangeWindows();
+            window.Show();
+        }
+
         private void OnWindowClosed(object sender, FormClosedEventArgs e)
         {
             var window = (MarqueeWindow)sender;
             window.FormClosed -= OnWindowClosed;
             _windows.Remove(window);
             ArrangeWindows();
+
+            if (!window.IsPreview && window.EndReason != MarqueeEndReason.Closed)
+            {
+                Finished?.Invoke(this, new MarqueeFinishedEventArgs(window.ReminderId));
+            }
         }
 
         // Raised on a system-events thread; hop back to the UI thread.
