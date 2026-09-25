@@ -84,6 +84,9 @@ namespace MarqueeReminder.Forms
             WireEvents();
         }
 
+        /// <summary>Raised when the user asks to quit the app completely (Ctrl+Q).</summary>
+        public event EventHandler? ExitRequested;
+
         /// <summary>Reloads the list, keeping the current selection.</summary>
         public void RefreshList()
         {
@@ -112,7 +115,7 @@ namespace MarqueeReminder.Forms
             }
 
             var active = reminders.Count(r => r.IsEnabled);
-            _summaryLabel.Text = $"{reminders.Count} reminder(s), {active} active";
+            _summaryLabel.Text = $"{reminders.Count} reminder(s), {active} active  ·  Closing this window keeps reminders running; Ctrl+Q quits";
             _emptyHint.Visible = reminders.Count == 0;
             _lastRefreshMinute = TruncateToMinute(DateTime.Now);
             UpdateCommandState();
@@ -126,6 +129,24 @@ namespace MarqueeReminder.Forms
             RefreshList();
             UpdateClock();
             _clockTimer.Start();
+        }
+
+        // The setting can also be changed from the tray menu while this window is open.
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+            _startupButton.Checked = StartupRegistration.IsEnabled;
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.Q))
+            {
+                ExitRequested?.Invoke(this, EventArgs.Empty);
+                return true;
+            }
+
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         protected override void Dispose(bool disposing)

@@ -15,8 +15,12 @@ edge of the desktop, at the time you schedule them.
   moves the bar inward, towards the centre of the screen. A negative offset pushes it outward past
   the edge. Several bars on the same edge stack instead of overlapping.
 - **Preview** any reminder on screen before saving it.
-- Runs in the **notification area** (system tray), can **start with Windows**, and only one copy
-  runs at a time.
+- **Starts with Windows** automatically. This is switched on the first time you run the app and
+  starts it silently in the tray when you sign in. Turn it off or on with "Start with Windows" in
+  the main window or the tray menu. If you move the app, the startup entry follows it.
+- **Keeps running when you close the window.** Closing (X) only hides it to the notification area
+  (system tray) so reminders still fire. Press **Ctrl+Q** in the window, or choose **Quit** in the
+  tray menu, to exit completely. Only one copy runs at a time.
 - Marquees never take focus from whatever you are typing in. Double-click a bar (or right-click →
   Dismiss) to close it.
 

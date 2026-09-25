@@ -1,6 +1,8 @@
 using System;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
+using System.Security;
 using System.Threading;
 using System.Windows.Forms;
 using MarqueeReminder.Core;
@@ -66,6 +68,7 @@ namespace MarqueeReminder
             SystemEvents.PowerModeChanged += OnPowerModeChanged;
             instance.ListenForActivation(() => _uiContext.Post(state => ShowMainForm(), null));
 
+            ApplyStartupDefault();
             _schedulerTimer.Start();
             if (!startMinimized)
             {
@@ -99,9 +102,36 @@ namespace MarqueeReminder
             var open = menu.Items.Add("Open Marquee Reminder", null, (sender, e) => ShowMainForm());
             open.Font = new Font(open.Font, FontStyle.Bold);
             menu.Items.Add("Dismiss all marquees", null, (sender, e) => _marquees.CloseAll());
+            var startWithWindows = new ToolStripMenuItem("Start with Windows", null, (sender, e) => ToggleStartWithWindows());
+            menu.Items.Add(startWithWindows);
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Exit", null, (sender, e) => ExitApplication());
+            menu.Items.Add(new ToolStripMenuItem("Quit", null, (sender, e) => ExitApplication()) { ShortcutKeyDisplayString = "Ctrl+Q" });
+            menu.Opening += (sender, e) => startWithWindows.Checked = StartupRegistration.IsEnabled;
             return menu;
+        }
+
+        private static void ApplyStartupDefault()
+        {
+            try
+            {
+                StartupRegistration.ApplyDefault();
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is SecurityException || ex is IOException)
+            {
+                ErrorReporter.Log(ex, "Could not register the app to start with Windows.");
+            }
+        }
+
+        private static void ToggleStartWithWindows()
+        {
+            try
+            {
+                StartupRegistration.SetEnabled(!StartupRegistration.IsEnabled);
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException || ex is SecurityException || ex is IOException)
+            {
+                ErrorReporter.Report(ex, "Could not change the Windows startup setting.");
+            }
         }
 
         private void ShowDueReminders()
@@ -123,6 +153,7 @@ namespace MarqueeReminder
             {
                 _mainForm = new MainForm(_service, _marquees, _appIcon);
                 _mainForm.FormClosed += OnMainFormClosed;
+                _mainForm.ExitRequested += (sender, e) => ExitApplication();
                 _mainForm.Show();
             }
 
@@ -143,7 +174,7 @@ namespace MarqueeReminder
                 _trayIcon.ShowBalloonTip(
                     3000,
                     "Marquee Reminder is still running",
-                    "Your reminders stay active. Use the tray icon to open the app or exit.",
+                    "Your reminders stay active. Click the tray icon to reopen it; press Ctrl+Q in the window to quit.",
                     ToolTipIcon.Info);
             }
         }

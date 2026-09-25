@@ -11,18 +11,22 @@ namespace MarqueeReminder.Infrastructure
 
         private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string ValueName = "MarqueeReminder";
+        private const string SettingsKeyPath = @"Software\MarqueeReminder";
+        private const string DefaultAppliedValueName = "StartupDefaultApplied";
 
         private static string Command => $"\"{Application.ExecutablePath}\" {MinimizedArgument}";
 
         /// <summary>True only if the registered command points at this copy of the executable.</summary>
-        public static bool IsEnabled
+        public static bool IsEnabled =>
+            string.Equals(RegisteredCommand, Command, StringComparison.OrdinalIgnoreCase);
+
+        private static string? RegisteredCommand
         {
             get
             {
                 using (var key = Registry.CurrentUser.OpenSubKey(RunKeyPath))
                 {
-                    return key?.GetValue(ValueName) is string value
-                        && string.Equals(value, Command, StringComparison.OrdinalIgnoreCase);
+                    return key?.GetValue(ValueName) as string;
                 }
             }
         }
@@ -39,6 +43,29 @@ namespace MarqueeReminder.Infrastructure
                 {
                     key.DeleteValue(ValueName, throwOnMissingValue: false);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Starting with Windows is on by default: it is switched on the first time the app runs.
+        /// After that the user's choice is respected. If the app was moved, the entry is updated
+        /// to point at this copy so it keeps starting.
+        /// </summary>
+        public static void ApplyDefault()
+        {
+            using (var settings = Registry.CurrentUser.CreateSubKey(SettingsKeyPath))
+            {
+                if (settings.GetValue(DefaultAppliedValueName) == null)
+                {
+                    SetEnabled(true);
+                    settings.SetValue(DefaultAppliedValueName, 1, RegistryValueKind.DWord);
+                    return;
+                }
+            }
+
+            if (RegisteredCommand != null && !IsEnabled)
+            {
+                SetEnabled(true);
             }
         }
     }
