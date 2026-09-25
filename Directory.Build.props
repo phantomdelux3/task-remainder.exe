@@ -4,8 +4,10 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
-    <Company>Marquee Reminder</Company>
+    <Company>deadpool1555</Company>
+    <Authors>deadpool1555</Authors>
+    <Copyright>Developed by deadpool1555</Copyright>
     <Product>Marquee Reminder</Product>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
   </PropertyGroup>
 </Project>

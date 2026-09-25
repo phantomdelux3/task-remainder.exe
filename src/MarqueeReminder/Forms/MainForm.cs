@@ -84,8 +84,10 @@ namespace MarqueeReminder.Forms
             tabs.TabPages.Add(remindersPage);
             tabs.TabPages.Add(settingsPage);
 
+            // Docking order: the last control added docks first, so the banner ends up above the tabs.
             Controls.Add(tabs);
             Controls.Add(new StatusStrip { Items = { _summaryLabel, _clockLabel }, SizingGrip = false });
+            Controls.Add(new DeveloperBanner());
             ResumeLayout(false);
             PerformLayout();
 
