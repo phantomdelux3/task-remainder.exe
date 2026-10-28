@@ -26,6 +26,7 @@ namespace MarqueeReminder.Marquee
     /// A borderless, always-on-top bar that scrolls a reminder's text. It never steals focus from
     /// the app the user is working in. Clicking it asks for the reminder's password; only the right
     /// password (or the display time running out) closes it. The text size follows the bar's thickness.
+    /// Click-hold-drag moves the bar across the screen; right-click switches it between horizontal and vertical.
     /// </summary>
     internal sealed class MarqueeWindow : Form
     {
@@ -47,6 +48,10 @@ namespace MarqueeReminder.Marquee
         private SizeF? _textSize;
         private PasswordPromptForm? _prompt;
         private bool _closeAllowed;
+        private Point? _dragAnchor;
+        private int _dragStartEdge;
+        private bool _dragging;
+        private bool _suppressClick;
 
         /// <param name="verifyPassword">Checks the close password, or null for a preview that closes on a click.</param>
         public MarqueeWindow(Guid reminderId, string message, MarqueeStyle style, TimeSpan? displayDuration, Func<string, bool>? verifyPassword)
@@ -69,7 +74,9 @@ namespace MarqueeReminder.Marquee
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
 
             var toolTip = new ToolTip(_components);
-            toolTip.SetToolTip(this, IsPreview ? "Preview. Click to close." : "Click to close (password required)");
+            toolTip.SetToolTip(this, (IsPreview ? "Preview. Click to close." : "Click to close (password required).")
+                + " Drag to move, right-click to turn.");
+            ContextMenuStrip = BuildOrientationMenu();
 
             _frameTimer = new Timer(_components) { Interval = FrameIntervalMs };
             _frameTimer.Tick += (sender, e) => Invalidate();
@@ -89,6 +96,15 @@ namespace MarqueeReminder.Marquee
         public bool IsPreview => _verifyPassword == null;
 
         public MarqueeEndReason EndReason { get; private set; } = MarqueeEndReason.Closed;
+
+        /// <summary>
+        /// Where the user moved the bar: its wanted top (horizontal) or left (vertical) edge in screen
+        /// pixels, or null while it still sits at its edge with the other bars there.
+        /// </summary>
+        public int? DraggedTo { get; private set; }
+
+        /// <summary>Raised when the user moves or turns the bar, so it can be laid out again.</summary>
+        public event EventHandler? PlacementChanged;
 
         protected override bool ShowWithoutActivation => true;
 
@@ -130,11 +146,64 @@ namespace MarqueeReminder.Marquee
             base.OnFormClosing(e);
         }
 
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button == MouseButtons.Left)
+            {
+                _dragAnchor = Cursor.Position;
+                _dragStartEdge = Style.IsVertical ? Left : Top;
+                _dragging = false;
+                _suppressClick = false;
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (_dragAnchor == null || (MouseButtons & MouseButtons.Left) == 0)
+            {
+                return;
+            }
+
+            var cursor = Cursor.Position;
+            var anchor = _dragAnchor.Value;
+            if (!_dragging)
+            {
+                // A small wobble while clicking is still a click, not a drag.
+                var dragSize = SystemInformation.DragSize;
+                if (Math.Abs(cursor.X - anchor.X) < dragSize.Width && Math.Abs(cursor.Y - anchor.Y) < dragSize.Height)
+                {
+                    return;
+                }
+
+                _dragging = true;
+                Cursor = Style.IsVertical ? Cursors.SizeWE : Cursors.SizeNS;
+            }
+
+            var moved = Style.IsVertical ? cursor.X - anchor.X : cursor.Y - anchor.Y;
+            MoveTo(Style.Position, _dragStartEdge + moved);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (e.Button == MouseButtons.Left)
+            {
+                // The click that ends a drag must not open the password prompt.
+                _suppressClick = _dragging;
+                _dragAnchor = null;
+                _dragging = false;
+                Cursor = Cursors.Hand;
+            }
+        }
+
         protected override void OnMouseClick(MouseEventArgs e)
         {
             base.OnMouseClick(e);
-            if (e.Button != MouseButtons.Left)
+            if (e.Button != MouseButtons.Left || _suppressClick)
             {
+                _suppressClick = false;
                 return;
             }
 
@@ -204,6 +273,59 @@ namespace MarqueeReminder.Marquee
 
             // Owned by the bar: it stays above it and closes with it (e.g. when the time runs out).
             _prompt.Show(this);
+        }
+
+        private ContextMenuStrip BuildOrientationMenu()
+        {
+            var horizontal = new ToolStripMenuItem("Horizontal");
+            var vertical = new ToolStripMenuItem("Vertical");
+            var menu = new ContextMenuStrip(_components);
+            menu.Items.AddRange(new ToolStripItem[] { horizontal, vertical });
+
+            // Remember where the menu was opened: the turned bar goes through that point.
+            var openedAt = Point.Empty;
+            menu.Opening += (sender, e) =>
+            {
+                openedAt = Cursor.Position;
+                horizontal.Checked = !Style.IsVertical;
+                vertical.Checked = Style.IsVertical;
+            };
+            horizontal.Click += (sender, e) => Turn(vertical: false, openedAt);
+            vertical.Click += (sender, e) => Turn(vertical: true, openedAt);
+            return menu;
+        }
+
+        /// <summary>
+        /// Turns the bar, keeping its thickness and centring it on <paramref name="through"/>. It reads
+        /// like a bar on the nearer screen edge (e.g. bottom-to-top on the left half).
+        /// </summary>
+        private void Turn(bool vertical, Point through)
+        {
+            if (vertical == Style.IsVertical)
+            {
+                return;
+            }
+
+            var thickness = Style.IsVertical ? Width : Height;
+            var screen = Screen.FromPoint(through).WorkingArea;
+            if (vertical)
+            {
+                var side = through.X < screen.Left + screen.Width / 2 ? MarqueePosition.Left : MarqueePosition.Right;
+                MoveTo(side, through.X - thickness / 2);
+            }
+            else
+            {
+                var side = through.Y < screen.Top + screen.Height / 2 ? MarqueePosition.Top : MarqueePosition.Bottom;
+                MoveTo(side, through.Y - thickness / 2);
+            }
+        }
+
+        private void MoveTo(MarqueePosition position, int edge)
+        {
+            Style.Position = position;
+            DraggedTo = edge;
+            PlacementChanged?.Invoke(this, EventArgs.Empty);
+            Invalidate();
         }
 
         /// <summary>The text font for the current thickness, recreated only when the bar is resized.</summary>

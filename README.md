@@ -30,6 +30,10 @@ to start with Windows, and starts it. Uninstall it from **Settings → Apps**.
   **offset** in pixels. A positive offset moves the bar inward, towards the centre of the screen.
   A negative offset pushes it outward past the edge. Bars on the same edge stack instead of
   overlapping.
+- **Move and turn a bar on screen.** Click, hold and drag a bar to move it: a horizontal bar moves
+  up and down, a vertical bar left and right. It can't be dragged off the screen. Right-click a bar
+  and choose **Horizontal** or **Vertical** to turn it; it turns through the point you clicked.
+  This applies to the bar on screen now; the reminder's saved position is unchanged.
 - **Preview** any reminder on screen for 10 seconds. A preview closes with a plain click.
 - **Starts with Windows**, silently in the notification area (system tray). Turn it off or on in
   **Settings**.

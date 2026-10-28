@@ -53,6 +53,36 @@ namespace MarqueeReminder.Core.Tests
         }
 
         [Theory]
+        [InlineData(false, 300, 0, 300, 1920, 50)]
+        [InlineData(true, 700, 700, 0, 50, 1040)]
+        public void Place_SpansWorkAreaAtDraggedSpot(bool vertical, int start, int x, int y, int width, int height)
+        {
+            Assert.Equal(new Rectangle(x, y, width, height), MarqueeLayout.Place(WorkArea, vertical, 50, start));
+        }
+
+        [Theory]
+        [InlineData(false, -500, 0)]
+        [InlineData(false, 5000, 990)]
+        [InlineData(true, -500, 0)]
+        [InlineData(true, 5000, 1870)]
+        public void Place_NeverLeavesWorkArea(bool vertical, int start, int expectedStart)
+        {
+            var bar = MarqueeLayout.Place(WorkArea, vertical, 50, start);
+
+            Assert.Equal(expectedStart, vertical ? bar.X : bar.Y);
+            Assert.True(WorkArea.Contains(bar));
+        }
+
+        [Fact]
+        public void Place_OnScreenWithOffsetOrigin_StaysInside()
+        {
+            var secondScreen = new Rectangle(-1280, 200, 1280, 984);
+
+            Assert.True(secondScreen.Contains(MarqueeLayout.Place(secondScreen, false, 50, 0)));
+            Assert.True(secondScreen.Contains(MarqueeLayout.Place(secondScreen, true, 50, 0)));
+        }
+
+        [Theory]
         [InlineData(48, 1.25f)]
         [InlineData(100, 1.33f)]
         [InlineData(300, 1.2f)]

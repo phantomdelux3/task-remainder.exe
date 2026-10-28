@@ -22,7 +22,8 @@ namespace MarqueeReminder.Marquee
 
     /// <summary>
     /// Shows marquee windows on the primary screen and keeps them laid out. Bars that share an
-    /// edge are stacked inward so they never cover each other.
+    /// edge are stacked inward so they never cover each other. A bar the user dragged stays where it
+    /// was put, always fully on screen.
     /// </summary>
     internal sealed class MarqueeManager : IDisposable
     {
@@ -87,6 +88,7 @@ namespace MarqueeReminder.Marquee
 
             var window = new MarqueeWindow(reminder.Id, reminder.Text, reminder.Style.Clone(), duration, verifyPassword);
             window.FormClosed += OnWindowClosed;
+            window.PlacementChanged += OnPlacementChanged;
             _windows.Add(window);
 
             ArrangeWindows();
@@ -97,6 +99,7 @@ namespace MarqueeReminder.Marquee
         {
             var window = (MarqueeWindow)sender;
             window.FormClosed -= OnWindowClosed;
+            window.PlacementChanged -= OnPlacementChanged;
             _windows.Remove(window);
             ArrangeWindows();
 
@@ -105,6 +108,8 @@ namespace MarqueeReminder.Marquee
                 Finished?.Invoke(this, new MarqueeFinishedEventArgs(window.ReminderId));
             }
         }
+
+        private void OnPlacementChanged(object sender, EventArgs e) => ArrangeWindows();
 
         // Raised on a system-events thread; hop back to the UI thread.
         private void OnDisplaySettingsChanged(object sender, EventArgs e) =>
@@ -115,7 +120,12 @@ namespace MarqueeReminder.Marquee
             var workArea = Screen.PrimaryScreen.WorkingArea;
             var scale = GetDpiScale();
 
-            foreach (var edge in _windows.GroupBy(w => w.Style.Position))
+            foreach (var window in _windows.Where(w => w.DraggedTo.HasValue))
+            {
+                window.Bounds = MarqueeLayout.Place(workArea, window.Style.IsVertical, Scale(window.Style.Thickness, scale), window.DraggedTo!.Value);
+            }
+
+            foreach (var edge in _windows.Where(w => !w.DraggedTo.HasValue).GroupBy(w => w.Style.Position))
             {
                 var stackOffset = 0;
                 foreach (var window in edge)

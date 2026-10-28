@@ -55,6 +55,26 @@ namespace MarqueeReminder.Core.Layout
             }
         }
 
+        /// <summary>
+        /// Places a bar the user dragged: it still spans the whole work area lengthwise, and is
+        /// kept entirely on screen across its thickness.
+        /// </summary>
+        /// <param name="workArea">Usable screen area (excludes the taskbar).</param>
+        /// <param name="vertical">True for a left/right (vertical) bar.</param>
+        /// <param name="thickness">Bar thickness in pixels.</param>
+        /// <param name="start">Wanted top (horizontal bar) or left (vertical bar) edge in screen pixels.</param>
+        public static Rectangle Place(Rectangle workArea, bool vertical, int thickness, int start)
+        {
+            if (vertical)
+            {
+                var width = Math.Min(thickness, workArea.Width);
+                return new Rectangle(Clamp(start, workArea.Left, workArea.Right - width), workArea.Top, width, workArea.Height);
+            }
+
+            var height = Math.Min(thickness, workArea.Height);
+            return new Rectangle(workArea.Left, Clamp(start, workArea.Top, workArea.Bottom - height), workArea.Width, height);
+        }
+
         private static int ClampX(Rectangle area, int x, int thickness) =>
             Clamp(x, area.Left - thickness + VisiblePart(thickness), area.Right - VisiblePart(thickness));
 
